@@ -19,29 +19,47 @@ export default function App() {
   const { setSession, setLoading, fetchProfile } = useAuthStore();
 
   useEffect(() => {
-    // Initial session check on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let didInit = false;
+
+    const init = async () => {
+      // Step 1: immediately restore session from localStorage
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       setSession(session);
       if (session) {
-        fetchProfile(session.user.id).finally(() => setLoading(false));
+        await fetchProfile(session.user.id);
+      }
+      didInit = true;
+      setLoading(false);
+    };
+
+    init();
+
+    // Step 2: listen for subsequent changes (tab focus, token refresh, sign out)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      // Skip the first fire — init() already handled it
+      if (!didInit) return;
+      setSession(session);
+      if (session) {
+        await fetchProfile(session.user.id);
       } else {
         setLoading(false);
       }
     });
 
-    // Keep session in sync (magic link redirect, OAuth, tab changes, expiry)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      if (session) {
-        await fetchProfile(session.user.id);
-      }
+    // Safety net: if something above hangs for 5s, unblock the UI anyway
+    const timeout = setTimeout(() => {
       setLoading(false);
-    });
+    }, 5000);
 
-    return () => subscription.unsubscribe();
-  }, [setSession, setLoading, fetchProfile]);
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <BrowserRouter>

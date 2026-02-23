@@ -7,7 +7,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Missing Supabase env vars — check your .env.local file.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // Explicitly use localStorage (default, but being explicit avoids edge cases)
+    storage: window.localStorage,
+    // Don't auto-refresh in the background before we've confirmed the session
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+  },
+});
 
 // ─── Database types ───────────────────────────────────────────────────────────
 
@@ -30,8 +39,8 @@ export interface Schedule {
   title: string | null;
   type: ScheduleType;
   is_all_day: boolean;
-  starts_at: string; // ISO UTC
-  ends_at: string; // ISO UTC
+  starts_at: string;
+  ends_at: string;
   repeat_rule: string | null;
   note: string | null;
   created_at: string;
