@@ -1,35 +1,85 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/authStore";
 
-function App() {
-  const [count, setCount] = useState(0)
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { LoginPage } from "@/pages/LoginPage";
+import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
+import { OnboardingPage } from "@/pages/OnboardingPage";
+import {
+  CalendarPage,
+  MySchedulePage,
+  FindTimePage,
+  ProfilePage,
+} from "@/pages/PlaceholderPages";
+
+export default function App() {
+  const { setSession, setLoading, fetchProfile } = useAuthStore();
+
+  useEffect(() => {
+    // Initial session check on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        fetchProfile(session.user.id).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // Keep session in sync (magic link redirect, OAuth, tab changes, expiry)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSession(session);
+      if (session) {
+        await fetchProfile(session.user.id);
+      }
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [setSession, setLoading, fetchProfile]);
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <BrowserRouter>
+      <Routes>
+        {/* ── Public ───────────────────────────────────────────────────────── */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-export default App
+        {/* ── Onboarding (authenticated, but profile not yet created) ──────── */}
+        <Route
+          path="/welcome"
+          element={
+            <ProtectedRoute>
+              <OnboardingPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ── App shell (authenticated + profile required) ─────────────────── */}
+        <Route
+          path="/app"
+          element={
+            <ProtectedRoute requireProfile>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/app/calendar" replace />} />
+          <Route path="calendar" element={<CalendarPage />} />
+          <Route path="schedule" element={<MySchedulePage />} />
+          <Route path="find" element={<FindTimePage />} />
+          <Route path="profile" element={<ProfilePage />} />
+        </Route>
+
+        {/* ── Fallbacks ────────────────────────────────────────────────────── */}
+        <Route path="/" element={<Navigate to="/app/calendar" replace />} />
+        <Route path="*" element={<Navigate to="/app/calendar" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
