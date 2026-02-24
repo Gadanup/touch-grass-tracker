@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { Avatar } from "@/components/ui/Avatar";
 
@@ -13,8 +13,12 @@ const NAV_ITEMS = [
 export function AppLayout() {
   const { profile, signOut } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [signingOut, setSigningOut] = useState(false);
   const [logoClicks, setLogoClicks] = useState(0);
+
+  // Calendar page manages its own scroll/padding — give it the full viewport
+  const isCalendar = location.pathname.startsWith("/app/calendar");
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -33,9 +37,8 @@ export function AppLayout() {
 
   return (
     <div className="h-screen bg-bg-base flex overflow-hidden">
-      {/* ── Desktop sidebar ─────────────────────────────────────────────────── */}
+      {/* ── Desktop sidebar ──────────────────────────────────────────────── */}
       <aside className="hidden md:flex flex-col w-56 bg-bg-surface border-r border-border shrink-0">
-        {/* Logo wordmark */}
         <button
           onClick={handleLogoClick}
           className="flex items-center gap-3 p-4 pb-0 group select-none cursor-pointer"
@@ -56,7 +59,6 @@ export function AppLayout() {
           </div>
         </button>
 
-        {/* Nav links */}
         <nav className="flex-1 px-3 py-6 flex flex-col gap-1">
           {NAV_ITEMS.map(({ to, icon, label }) => (
             <NavLink
@@ -78,7 +80,6 @@ export function AppLayout() {
           ))}
         </nav>
 
-        {/* User footer */}
         <div className="p-3 border-t border-border">
           <div className="flex items-center gap-3 px-2 py-2">
             {profile && <Avatar profile={profile} size="sm" />}
@@ -100,14 +101,16 @@ export function AppLayout() {
         </div>
       </aside>
 
-      {/* ── Main content ─────────────────────────────────────────────────────── */}
+      {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-4 md:p-6 pb-20 md:pb-6">
+        <main
+          className={`flex-1 overflow-hidden ${isCalendar ? "" : "overflow-auto p-4 md:p-6 pb-20 md:pb-6"}`}
+        >
           <Outlet />
         </main>
       </div>
 
-      {/* ── Mobile bottom nav ────────────────────────────────────────────────── */}
+      {/* ── Mobile bottom nav ────────────────────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-bg-surface border-t border-border flex">
         {NAV_ITEMS.map(({ to, icon, label }) => (
           <NavLink
@@ -128,7 +131,6 @@ export function AppLayout() {
   );
 }
 
-// ─── Easter egg — 5× logo click ──────────────────────────────────────────────
 function triggerConfetti() {
   const emojis = ["🌿", "🎉", "⚡", "🌱", "✨", "🏆"];
   for (let i = 0; i < 40; i++) {
