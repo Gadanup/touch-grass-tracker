@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/authStore";
+import { ToastContainer } from "@/components/ui/ToastContainer";
 
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -11,7 +12,7 @@ import { OnboardingPage } from "@/pages/OnboardingPage";
 import { MySchedulePage } from "@/pages/MySchedulePage";
 import { CalendarPage } from "@/pages/CalendarPage";
 import { FindTimePage } from "@/pages/FindTimePage";
-import { ProfilePage } from "@/pages/PlaceholderPages";
+import { ProfilePage } from "@/pages/ProfilePage";
 
 export default function App() {
   const { boot } = useAuthStore();
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/app/calendar" replace />} />
         <Route path="*" element={<Navigate to="/app/calendar" replace />} />
       </Routes>
+      <ToastContainer />
     </BrowserRouter>
   );
 }

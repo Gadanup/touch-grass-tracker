@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { format, isToday, isSameDay } from "date-fns";
 import { CalendarDay } from "@/hooks/useCalendarWeek";
 import { MemberWithSchedules } from "@/hooks/useGroupSchedules";
@@ -18,6 +18,9 @@ interface CalendarGridProps {
   days: CalendarDay[];
   members: MemberWithSchedules[];
   visibleIds: Set<string>;
+  currentUserId?: string;
+  onSlotClick?: (date: Date, hour: number) => void;
+  onDeleteEvent?: (id: string) => void;
 }
 
 interface PositionedEvent {
@@ -84,7 +87,14 @@ function layoutDayEvents(
   return positioned;
 }
 
-export function CalendarGrid({ days, members, visibleIds }: CalendarGridProps) {
+export function CalendarGrid({
+  days,
+  members,
+  visibleIds,
+  currentUserId,
+  onSlotClick,
+  onDeleteEvent,
+}: CalendarGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Scroll to 8am on mount
@@ -108,6 +118,45 @@ export function CalendarGrid({ days, members, visibleIds }: CalendarGridProps) {
     }
     return out;
   }, [members, visibleIds]);
+
+  // Build a set of hours already occupied by the current user per day index
+  // so we can suppress the slot hint and click on those cells
+  const ownOccupiedByDay = useMemo(() => {
+    return days.map((day) => {
+      const occupied = new Set<number>();
+      if (!currentUserId) return occupied;
+      for (const { profile, schedules } of members) {
+        if (profile.id !== currentUserId) continue;
+        for (const s of schedules) {
+          if (s.is_all_day) continue;
+          const start = new Date(s.starts_at);
+          const end = new Date(s.ends_at);
+          // Mark every hour row this event touches on this day
+          if (
+            start.toDateString() === day.date.toDateString() ||
+            end.toDateString() === day.date.toDateString()
+          ) {
+            const startH =
+              start.toDateString() === day.date.toDateString()
+                ? start.getHours()
+                : HOUR_START;
+            const endH =
+              end.toDateString() === day.date.toDateString()
+                ? end.getHours()
+                : HOUR_END;
+            for (let h = startH; h <= endH; h++) occupied.add(h);
+          }
+        }
+      }
+      return occupied;
+    });
+  }, [days, members, currentUserId]);
+
+  // Track which column+hour the mouse is hovering so we can show the + hint
+  const [hoverSlot, setHoverSlot] = useState<{
+    di: number;
+    hour: number;
+  } | null>(null);
 
   const eventsByDay = useMemo(
     () =>
@@ -170,6 +219,39 @@ export function CalendarGrid({ days, members, visibleIds }: CalendarGridProps) {
               <div
                 key={day.date.toISOString()}
                 className={`flex-1 relative border-l border-border ${isToday(day.date) ? "bg-grass/[0.02]" : ""}`}
+                onMouseMove={
+                  onSlotClick
+                    ? (e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y = e.clientY - rect.top;
+                        const hour = Math.floor(y / ROW_HEIGHT) + HOUR_START;
+                        setHoverSlot({
+                          di,
+                          hour: Math.min(Math.max(hour, HOUR_START), HOUR_END),
+                        });
+                      }
+                    : undefined
+                }
+                onMouseLeave={
+                  onSlotClick ? () => setHoverSlot(null) : undefined
+                }
+                onClick={
+                  onSlotClick
+                    ? (e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y = e.clientY - rect.top;
+                        const hour = Math.min(
+                          Math.max(
+                            Math.floor(y / ROW_HEIGHT) + HOUR_START,
+                            HOUR_START,
+                          ),
+                          HOUR_END,
+                        );
+                        if (ownOccupiedByDay[di]?.has(hour)) return;
+                        onSlotClick(day.date, hour);
+                      }
+                    : undefined
+                }
               >
                 {HOURS.map((hour) => (
                   <div
@@ -187,6 +269,29 @@ export function CalendarGrid({ days, members, visibleIds }: CalendarGridProps) {
                     }}
                   />
                 ))}
+                {/* Hover slot hint */}
+                {onSlotClick &&
+                  hoverSlot?.di === di &&
+                  hoverSlot.hour >= HOUR_START &&
+                  !ownOccupiedByDay[di]?.has(hoverSlot.hour) && (
+                    <div
+                      className="absolute left-0 right-0 z-30 flex items-center justify-center pointer-events-none"
+                      style={{
+                        top: (hoverSlot.hour - HOUR_START) * ROW_HEIGHT,
+                        height: ROW_HEIGHT,
+                      }}
+                    >
+                      <div className="flex items-center gap-1 bg-grass/10 border border-grass/25 rounded-md px-2 py-0.5">
+                        <span className="text-grass text-xs leading-none">
+                          +
+                        </span>
+                        <span className="font-mono text-[11px] text-grass/80">
+                          {String(hoverSlot.hour).padStart(2, "0")}:00
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                 {isToday(day.date) && (
                   <div
                     className="absolute left-0 right-0 z-20 flex items-center pointer-events-none"
@@ -206,6 +311,8 @@ export function CalendarGrid({ days, members, visibleIds }: CalendarGridProps) {
                     widthPct={ev.widthPct}
                     memberColor={ev.profile.avatar_color}
                     memberName={ev.profile.display_name}
+                    isOwn={ev.profile.id === currentUserId}
+                    onDelete={onDeleteEvent}
                   />
                 ))}
               </div>

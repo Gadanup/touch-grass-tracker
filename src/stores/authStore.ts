@@ -55,9 +55,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
-    // Clear local state first so the UI redirects immediately
     set({ session: null, profile: null });
-    // Then tell Supabase — we don't await or care about the result
     supabase.auth.signOut();
   },
 }));

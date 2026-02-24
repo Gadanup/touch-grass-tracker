@@ -19,7 +19,6 @@ const SIZE = {
 export function Avatar({ profile, size = "md", className = "" }: AvatarProps) {
   const { wrap, img } = SIZE[size];
 
-  // Priority 1 — uploaded image
   if (profile.avatar_url) {
     return (
       <img
@@ -30,7 +29,6 @@ export function Avatar({ profile, size = "md", className = "" }: AvatarProps) {
     );
   }
 
-  // Priority 2 — emoji  |  Priority 3 — initials + color
   const initials = profile.display_name
     .split(/\s+/)
     .map((w) => w[0])

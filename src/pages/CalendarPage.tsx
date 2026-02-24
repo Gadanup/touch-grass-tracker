@@ -1,9 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useCalendarWeek } from "@/hooks/useCalendarWeek";
 import { useGroupSchedules } from "@/hooks/useGroupSchedules";
 import { CalendarGrid } from "@/components/calendar/CalendarGrid";
 import { AllDayBanner } from "@/components/calendar/AllDayBanner";
 import { MemberLegend } from "@/components/calendar/MemberLegend";
+import { ShortcutsModal } from "@/components/calendar/ShortcutsModal";
+import { ScheduleForm } from "@/components/schedule/ScheduleForm";
+import { useScheduleStore } from "@/stores/scheduleStore";
+import { NewSchedulePayload } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/authStore";
 import { Schedule, Profile } from "@/lib/supabase";
 
 export function CalendarPage() {
@@ -17,13 +22,21 @@ export function CalendarPage() {
     goPrev,
     goToday,
   } = useCalendarWeek();
-  const { members, loading, error } = useGroupSchedules(weekStart, weekEnd);
+  const { members, loading, error, refetch } = useGroupSchedules(
+    weekStart,
+    weekEnd,
+  );
 
-  // Track which members are visible — default all visible
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set());
   const [legendOpen, setLegendOpen] = useState(true);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [quickAdd, setQuickAdd] = useState<{ date: Date; hour: number } | null>(
+    null,
+  );
 
-  // Once members load, initialise visibleIds with everyone
+  const { addSchedule, addBulk, deleteSchedule } = useScheduleStore();
+  const { profile } = useAuthStore();
+
   const allIds = useMemo(
     () => new Set(members.map((m) => m.profile.id)),
     [members],
@@ -46,7 +59,6 @@ export function CalendarPage() {
     });
   };
 
-  // All-day events for visible members
   const allDayEvents = useMemo(() => {
     const out: { schedule: Schedule; profile: Profile }[] = [];
     for (const { profile, schedules } of members) {
@@ -58,7 +70,6 @@ export function CalendarPage() {
     return out;
   }, [members, effectiveVisible]);
 
-  // Day summary: count members with "available" blocks per day
   const todayFreeCount = useMemo(() => {
     const today = days.find((d) => d.isToday);
     if (!today) return null;
@@ -78,9 +89,66 @@ export function CalendarPage() {
     return free.size;
   }, [days, members, effectiveVisible]);
 
+  const handleSlotClick = (date: Date, hour: number) => {
+    setQuickAdd({ date, hour });
+  };
+
+  const handleQuickSave = async (payloads: NewSchedulePayload[]) => {
+    if (payloads.length === 1) await addSchedule(payloads[0]);
+    else await addBulk(payloads);
+    await refetch();
+  };
+
+  const handleDeleteEvent = async (id: string) => {
+    await deleteSchedule(id);
+    await refetch();
+  };
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      // Don't fire when typing in an input/textarea
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      switch (e.key) {
+        case "ArrowLeft":
+          e.preventDefault();
+          goPrev();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          goNext();
+          break;
+        case "t":
+        case "T":
+          goToday();
+          break;
+        case "?":
+          setShortcutsOpen((o) => !o);
+          break;
+        case "Escape":
+          setShortcutsOpen(false);
+          setQuickAdd(null);
+          break;
+        case "n":
+        case "N":
+          if (!quickAdd)
+            setQuickAdd({ date: new Date(), hour: new Date().getHours() });
+          break;
+      }
+    },
+    [goPrev, goNext, goToday],
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
   return (
     <div className="flex h-full">
-      {/* ── Member legend sidebar ─────────────────────────────────────────── */}
+      {/* Member legend sidebar */}
       {legendOpen && (
         <div className="hidden md:flex flex-col w-44 shrink-0 border-r border-border bg-bg-surface overflow-y-auto">
           {loading ? (
@@ -100,8 +168,6 @@ export function CalendarPage() {
               onToggleAll={handleToggleAll}
             />
           )}
-
-          {/* Today's free count */}
           {todayFreeCount !== null && todayFreeCount > 0 && (
             <div className="mt-auto px-3 pb-3">
               <div className="bg-grass/10 border border-grass/20 rounded-lg px-2.5 py-2">
@@ -114,7 +180,7 @@ export function CalendarPage() {
         </div>
       )}
 
-      {/* ── Main calendar area ────────────────────────────────────────────── */}
+      {/* Main calendar area */}
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-surface shrink-0">
@@ -149,6 +215,13 @@ export function CalendarPage() {
               </span>
             )}
             <button
+              onClick={() => setShortcutsOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-all font-mono text-xs"
+              title="Keyboard shortcuts (?)"
+            >
+              ?
+            </button>
+            <button
               onClick={goPrev}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-all font-mono text-base"
               aria-label="Previous week"
@@ -165,18 +238,33 @@ export function CalendarPage() {
           </div>
         </div>
 
-        {/* All-day banner */}
         <AllDayBanner days={days} events={allDayEvents} />
 
-        {/* Calendar grid */}
         <div className="flex-1 overflow-hidden">
           <CalendarGrid
             days={days}
             members={members}
             visibleIds={effectiveVisible}
+            currentUserId={profile?.id}
+            onSlotClick={handleSlotClick}
+            onDeleteEvent={handleDeleteEvent}
           />
         </div>
       </div>
+
+      {quickAdd && profile && (
+        <ScheduleForm
+          userId={profile.id}
+          prefillDate={quickAdd.date}
+          prefillHour={quickAdd.hour}
+          onSave={handleQuickSave}
+          onClose={() => setQuickAdd(null)}
+        />
+      )}
+
+      {shortcutsOpen && (
+        <ShortcutsModal onClose={() => setShortcutsOpen(false)} />
+      )}
     </div>
   );
 }

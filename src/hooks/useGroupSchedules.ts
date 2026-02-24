@@ -1,59 +1,83 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase, Profile, Schedule } from "@/lib/supabase";
 import { expandRepeatingSchedules } from "@/lib/expandRepeatingSchedules";
+import { useToastStore } from "@/stores/toastStore";
+import { useAuthStore } from "@/stores/authStore";
 
 export interface MemberWithSchedules {
   profile: Profile;
-  schedules: Schedule[]; // already expanded for the current week
+  schedules: Schedule[];
 }
+
+const REALTIME_MSGS = (
+  name: string,
+  action: "added" | "updated" | "deleted",
+) => {
+  const msgs = {
+    added: [
+      `${name} just blocked out some time. Rude.`,
+      `${name} added an event. There goes the weekend.`,
+      `${name} updated their schedule. As if on purpose.`,
+    ],
+    updated: [
+      `${name} changed something. Classic.`,
+      `${name} moved their schedule around. Chaotic.`,
+      `${name} updated an event. No warning. None.`,
+    ],
+    deleted: [
+      `${name} freed up some time. Suspicious.`,
+      `${name} deleted an event. Who knows why.`,
+      `${name} cleared a block. Unplanned availability detected.`,
+    ],
+  };
+  const list = msgs[action];
+  return list[Math.floor(Math.random() * list.length)];
+};
 
 export function useGroupSchedules(rangeStart: Date, rangeEnd: Date) {
   const [members, setMembers] = useState<MemberWithSchedules[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const pushToast = useToastStore((s) => s.push);
+  const currentUser = useAuthStore((s) => s.profile);
+  const membersRef = useRef<MemberWithSchedules[]>([]);
+  membersRef.current = members;
+
   const fetch = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      // 1. Fetch all profiles
-      const { data: profiles, error: profilesErr } = await supabase
+      const { data: profiles, error: pErr } = await supabase
         .from("profiles")
         .select("*")
         .order("display_name");
+      if (pErr) throw pErr;
 
-      if (profilesErr) throw profilesErr;
-
-      // 2. Fetch all schedules that could overlap this week
-      //    (we cast a wide net — any schedule starting before rangeEnd
-      //     and ending after rangeStart)
-      const { data: schedules, error: schedulesErr } = await supabase
+      const { data: schedules, error: sErr } = await supabase
         .from("schedules")
         .select("*")
         .lte("starts_at", rangeEnd.toISOString())
         .gte("ends_at", rangeStart.toISOString());
+      if (sErr) throw sErr;
 
-      if (schedulesErr) throw schedulesErr;
-
-      // 3. Group schedules by user_id and expand repeating ones
-      const schedulesByUser = new Map<string, Schedule[]>();
+      const byUser = new Map<string, Schedule[]>();
       for (const s of schedules ?? []) {
-        const arr = schedulesByUser.get(s.user_id) ?? [];
+        const arr = byUser.get(s.user_id) ?? [];
         arr.push(s as Schedule);
-        schedulesByUser.set(s.user_id, arr);
+        byUser.set(s.user_id, arr);
       }
 
-      const result: MemberWithSchedules[] = (profiles ?? []).map((p) => ({
-        profile: p as Profile,
-        schedules: expandRepeatingSchedules(
-          schedulesByUser.get(p.id) ?? [],
-          rangeStart,
-          rangeEnd,
-        ),
-      }));
-
-      setMembers(result);
+      setMembers(
+        (profiles ?? []).map((p) => ({
+          profile: p as Profile,
+          schedules: expandRepeatingSchedules(
+            byUser.get(p.id) ?? [],
+            rangeStart,
+            rangeEnd,
+          ),
+        })),
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load schedules");
     } finally {
@@ -64,6 +88,39 @@ export function useGroupSchedules(rangeStart: Date, rangeEnd: Date) {
   useEffect(() => {
     fetch();
   }, [fetch]);
+
+  // ── Realtime ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel("schedules-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "schedules" },
+        (payload) => {
+          const record = (payload.new ?? payload.old) as Schedule | null;
+          const userId = record?.user_id;
+
+          if (userId && userId !== currentUser?.id) {
+            const name =
+              membersRef.current.find((m) => m.profile.id === userId)?.profile
+                .display_name ?? "Someone";
+            const action =
+              payload.eventType === "INSERT"
+                ? "added"
+                : payload.eventType === "DELETE"
+                  ? "deleted"
+                  : "updated";
+            pushToast(REALTIME_MSGS(name, action));
+          }
+          fetch();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetch, currentUser?.id, pushToast]);
 
   return { members, loading, error, refetch: fetch };
 }

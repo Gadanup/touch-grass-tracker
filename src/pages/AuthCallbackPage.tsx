@@ -1,36 +1,35 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/authStore";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 
-// This page is no longer the primary auth flow (that's handled by LoginPage now).
-// It exists as a fallback landing spot — e.g. if you add OAuth providers later.
 export function AuthCallbackPage() {
   const navigate = useNavigate();
-  const { session, profile } = useAuthStore();
+  const { boot } = useAuthStore();
 
   useEffect(() => {
-    // Give onAuthStateChange in App.tsx a moment to process, then redirect
-    const t = setTimeout(() => {
-      if (session && profile) navigate("/app/calendar", { replace: true });
-      else if (session && !profile) navigate("/welcome", { replace: true });
-      else navigate("/login", { replace: true });
-    }, 500);
+    const run = async () => {
+      // Supabase parses the URL hash automatically on getSession()
+      // For password recovery the hash contains type=recovery
+      const hash = window.location.hash;
+      const params = new URLSearchParams(hash.replace("#", "?"));
+      const type = params.get("type");
 
-    return () => clearTimeout(t);
-  }, [session, profile, navigate]);
+      // Let the SDK process the token
+      await boot();
 
-  return (
-    <div className="h-screen w-screen bg-bg-base flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4 animate-fade-in">
-        <img
-          src="/logo.png"
-          alt="TouchGrass Tracker"
-          className="w-16 h-16 animate-spin-slow opacity-80"
-        />
-        <span className="font-mono text-text-muted text-sm">
-          redirecting...
-        </span>
-      </div>
-    </div>
-  );
+      if (type === "recovery") {
+        // Send them to profile where the change-password section lives
+        navigate("/app/profile?changePassword=1", { replace: true });
+      } else {
+        const { profile } = useAuthStore.getState();
+        navigate(profile ? "/app/calendar" : "/welcome", { replace: true });
+      }
+    };
+
+    run();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <LoadingScreen />;
 }

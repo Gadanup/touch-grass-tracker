@@ -17,6 +17,7 @@ export function MySchedulePage() {
     error,
     fetchSchedules,
     addSchedule,
+    addBulk,
     updateSchedule,
     deleteSchedule,
   } = useScheduleStore();
@@ -40,14 +41,13 @@ export function MySchedulePage() {
   });
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleSave = async (
-    payload: Parameters<typeof addSchedule>[0],
-    id?: string,
-  ) => {
-    if (id) {
-      await updateSchedule(id, payload);
+  const handleSave = async (payloads: NewSchedulePayload[], id?: string) => {
+    if (id && payloads.length === 1) {
+      await updateSchedule(id, payloads[0]);
+    } else if (payloads.length === 1) {
+      await addSchedule(payloads[0]);
     } else {
-      await addSchedule(payload);
+      await addBulk(payloads);
     }
   };
 
@@ -194,7 +194,7 @@ function EmptyState({ tab, onAdd }: { tab: Tab; onAdd: () => void }) {
       all: {
         emoji: "🕹️",
         title: "No events yet",
-        body: "Add your first event and let your squad know what you're up to.",
+        body: "Add your first event and let the squad know when you are busy.",
       },
     };
   const { emoji, title, body } = messages[tab];
