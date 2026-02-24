@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -11,23 +10,13 @@ export function ProtectedRoute({
   children,
   requireProfile = false,
 }: ProtectedRouteProps) {
-  const { session, profile, loading, setLoading } = useAuthStore();
-  const [timedOut, setTimedOut] = useState(false);
+  const { session, profile, ready } = useAuthStore();
 
-  // Hard fallback: if still loading after 6s, force-unblock
-  useEffect(() => {
-    if (!loading) return;
-    const t = setTimeout(() => {
-      setTimedOut(true);
-      setLoading(false);
-    }, 6000);
-    return () => clearTimeout(t);
-  }, [loading, setLoading]);
-
-  if (loading) {
+  // Still booting — show spinner
+  if (!ready) {
     return (
       <div className="h-screen w-screen bg-bg-base flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 animate-fade-in">
+        <div className="flex flex-col items-center gap-4">
           <img
             src="/logo.png"
             alt="TouchGrass Tracker"
@@ -39,22 +28,15 @@ export function ProtectedRoute({
     );
   }
 
-  // If we timed out with no session, go to login
-  if (timedOut && !session) {
-    return <Navigate to="/login" replace />;
-  }
+  // Not logged in
+  if (!session) return <Navigate to="/login" replace />;
 
-  if (!session) {
-    return <Navigate to="/login" replace />;
-  }
+  // Logged in but no profile yet (new user)
+  if (requireProfile && !profile) return <Navigate to="/welcome" replace />;
 
-  if (requireProfile && !profile) {
-    return <Navigate to="/welcome" replace />;
-  }
-
-  if (!requireProfile && profile && window.location.pathname === "/welcome") {
+  // Already has profile but landed on /welcome (returning user somehow)
+  if (!requireProfile && profile)
     return <Navigate to="/app/calendar" replace />;
-  }
 
   return <>{children}</>;
 }

@@ -6,7 +6,7 @@ import { useAuthStore } from "@/stores/authStore";
 type Mode = "signin" | "signup";
 
 export function LoginPage() {
-  const { session } = useAuthStore();
+  const { session, boot } = useAuthStore();
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -15,6 +15,7 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Already logged in — skip
   if (session) return <Navigate to="/app/calendar" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,19 +31,16 @@ export function LoginPage() {
       });
       if (error) {
         setError(error.message);
-        setLoading(false);
       } else {
-        // Switch to sign in — user either needs to confirm email or can sign in directly
         setSuccess("Account created! Sign in below.");
         setMode("signin");
         setPassword("");
-        setLoading(false);
       }
+      setLoading(false);
       return;
     }
 
-    // Sign in
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
     });
@@ -53,29 +51,15 @@ export function LoginPage() {
       return;
     }
 
-    if (!data.session) {
-      setError("Sign in failed — no session returned.");
-      setLoading(false);
-      return;
-    }
-
-    // Check if profile exists to decide where to send the user
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", data.session.user.id)
-      .single();
-
-    if (profile) {
-      navigate("/app/calendar", { replace: true });
-    } else {
-      navigate("/welcome", { replace: true });
-    }
+    // Re-run boot to load the new session + profile into the store,
+    // then navigate based on whether a profile exists
+    await boot();
+    const { profile } = useAuthStore.getState();
+    navigate(profile ? "/app/calendar" : "/welcome", { replace: true });
   };
 
   return (
     <div className="h-screen w-screen bg-bg-base flex items-center justify-center p-4">
-      {/* Dot-grid background */}
       <div
         className="absolute inset-0 opacity-[0.03] pointer-events-none"
         style={{
@@ -85,7 +69,6 @@ export function LoginPage() {
       />
 
       <div className="relative w-full max-w-sm animate-slide-up">
-        {/* Logo + wordmark */}
         <div className="flex flex-col items-center mb-10 gap-3">
           <img
             src="/logo.png"
@@ -104,40 +87,22 @@ export function LoginPage() {
         </div>
 
         <div className="card">
-          {/* Mode toggle */}
           <div className="flex rounded-lg bg-bg-card border border-border p-1 mb-5">
-            <button
-              type="button"
-              onClick={() => {
-                setMode("signin");
-                setError("");
-                setSuccess("");
-              }}
-              className={`flex-1 py-1.5 rounded-md font-display font-bold text-sm transition-all duration-150
-                ${
-                  mode === "signin"
-                    ? "bg-bg-elevated text-text-primary shadow-sm"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode("signup");
-                setError("");
-                setSuccess("");
-              }}
-              className={`flex-1 py-1.5 rounded-md font-display font-bold text-sm transition-all duration-150
-                ${
-                  mode === "signup"
-                    ? "bg-bg-elevated text-text-primary shadow-sm"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-            >
-              Create account
-            </button>
+            {(["signin", "signup"] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setMode(m);
+                  setError("");
+                  setSuccess("");
+                }}
+                className={`flex-1 py-1.5 rounded-md font-display font-bold text-sm transition-all duration-150
+                  ${mode === m ? "bg-bg-elevated text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"}`}
+              >
+                {m === "signin" ? "Sign in" : "Create account"}
+              </button>
+            ))}
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -157,7 +122,6 @@ export function LoginPage() {
                 required
               />
             </div>
-
             <div>
               <label htmlFor="password" className="label">
                 Password
@@ -180,16 +144,9 @@ export function LoginPage() {
               />
             </div>
 
-            {error && (
-              <p className="font-mono text-red text-xs animate-fade-in">
-                ⚠ {error}
-              </p>
-            )}
-
+            {error && <p className="font-mono text-red   text-xs">⚠ {error}</p>}
             {success && (
-              <p className="font-mono text-grass text-xs animate-fade-in leading-relaxed">
-                ✓ {success}
-              </p>
+              <p className="font-mono text-grass text-xs">✓ {success}</p>
             )}
 
             <button

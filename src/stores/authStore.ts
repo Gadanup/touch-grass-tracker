@@ -5,12 +5,10 @@ import { supabase, Profile } from "@/lib/supabase";
 interface AuthState {
   session: Session | null;
   profile: Profile | null;
-  loading: boolean;
+  ready: boolean;
 
-  setSession: (session: Session | null) => void;
+  boot: () => Promise<void>;
   setProfile: (profile: Profile | null) => void;
-  setLoading: (loading: boolean) => void;
-  fetchProfile: (userId: string) => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -18,51 +16,48 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   profile: null,
-  loading: true,
+  ready: false,
 
-  setSession: (session) => set({ session }),
-  setProfile: (profile) => set({ profile }),
-  setLoading: (loading) => set({ loading }),
-
-  fetchProfile: async (userId) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-
-    if (error) {
-      // PGRST116 = row not found (new user, no profile yet) — expected
-      if (error.code !== "PGRST116") {
-        console.error("Error fetching profile:", error);
+  boot: async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        set({ session: null, profile: null, ready: true });
+        return;
       }
-      set({ profile: null });
-    } else {
-      set({ profile: data as Profile });
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
+      set({ session, profile: profile ?? null, ready: true });
+    } catch {
+      set({ ready: true });
     }
   },
+
+  setProfile: (profile) => set({ profile }),
 
   updateProfile: async (updates) => {
     const { profile } = get();
     if (!profile) return;
-
-    // Optimistic update
     set({ profile: { ...profile, ...updates } });
-
     const { error } = await supabase
       .from("profiles")
       .update(updates)
       .eq("id", profile.id);
-
     if (error) {
-      // Rollback on failure
       set({ profile });
       throw error;
     }
   },
 
   signOut: async () => {
-    await supabase.auth.signOut();
+    // Clear local state first so the UI redirects immediately
     set({ session: null, profile: null });
+    // Then tell Supabase — we don't await or care about the result
+    supabase.auth.signOut();
   },
 }));

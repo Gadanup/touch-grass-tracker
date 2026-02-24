@@ -8,67 +8,26 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
+import { MySchedulePage } from "@/pages/MySchedulePage";
 import {
   CalendarPage,
-  MySchedulePage,
   FindTimePage,
   ProfilePage,
 } from "@/pages/PlaceholderPages";
 
 export default function App() {
-  const { setSession, setLoading, fetchProfile } = useAuthStore();
+  const { boot } = useAuthStore();
 
   useEffect(() => {
-    let didInit = false;
-
-    const init = async () => {
-      // Step 1: immediately restore session from localStorage
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      setSession(session);
-      if (session) {
-        await fetchProfile(session.user.id);
-      }
-      didInit = true;
-      setLoading(false);
-    };
-
-    init();
-
-    // Step 2: listen for subsequent changes (tab focus, token refresh, sign out)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      // Skip the first fire — init() already handled it
-      if (!didInit) return;
-      setSession(session);
-      if (session) {
-        await fetchProfile(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
-
-    // Safety net: if something above hangs for 5s, unblock the UI anyway
-    const timeout = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
-    return () => {
-      subscription.unsubscribe();
-      clearTimeout(timeout);
-    };
+    // Boot once on mount — no listener needed, signOut clears state directly
+    boot();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <BrowserRouter>
       <Routes>
-        {/* ── Public ───────────────────────────────────────────────────────── */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
-
-        {/* ── Onboarding (authenticated, but profile not yet created) ──────── */}
         <Route
           path="/welcome"
           element={
@@ -77,8 +36,6 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
-        {/* ── App shell (authenticated + profile required) ─────────────────── */}
         <Route
           path="/app"
           element={
@@ -93,8 +50,6 @@ export default function App() {
           <Route path="find" element={<FindTimePage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
-
-        {/* ── Fallbacks ────────────────────────────────────────────────────── */}
         <Route path="/" element={<Navigate to="/app/calendar" replace />} />
         <Route path="*" element={<Navigate to="/app/calendar" replace />} />
       </Routes>
