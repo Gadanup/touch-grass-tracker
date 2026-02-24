@@ -10,7 +10,8 @@ import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { MySchedulePage } from "@/pages/MySchedulePage";
 import { CalendarPage } from "@/pages/CalendarPage";
-import { FindTimePage, ProfilePage } from "@/pages/PlaceholderPages";
+import { FindTimePage } from "@/pages/FindTimePage";
+import { ProfilePage } from "@/pages/PlaceholderPages";
 
 export default function App() {
   const { boot } = useAuthStore();
